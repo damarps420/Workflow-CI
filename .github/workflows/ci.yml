@@ -1,0 +1,76 @@
+name: ML CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  train-and-save:
+    name: Train Model & Save Artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install mlflow==2.11.1 scikit-learn==1.3.2 pandas numpy seaborn
+
+      - name: Run MLflow Project
+        run: |
+          cd MLProject
+          cp namadataset_preprocessing/cleaned_titanic.csv .
+          mlflow run . --env-manager=local --experiment-name="Latihan_Basic_ML"
+
+      - name: Simpan RUN_ID
+        run: |
+          cd MLProject
+          EXP_FOLDER=$(ls mlruns/ | grep -v '^0$' | grep -v 'models' | head -1)
+          RUN_ID=$(ls mlruns/$EXP_FOLDER/ | grep -v 'meta' | head -1)
+          echo "RUN_ID: $RUN_ID"
+          echo $RUN_ID > run_id.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-artifacts
+          path: |
+            MLProject/mlruns/
+            MLProject/run_id.txt
+          retention-days: 30
+
+  build-docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: train-and-save
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mlflow-artifacts
+          path: MLProject/
+
+      - name: Login Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker Image
+        run: |
+          docker build -t damarpayogasetiawan/submission-bmlp:latest .
+
+      - name: Push ke Docker Hub
+        run: |
+          docker push damarpayogasetiawan/submission-bmlp:latest
